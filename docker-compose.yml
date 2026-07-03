@@ -1,0 +1,9 @@
+services:
+  hunter-foreman-demo-receiver:
+    build: .
+    container_name: hunter-foreman-demo-receiver
+    ports:
+      - "3100:3100"
+    environment:
+      - PORT=3100
+      - FOREMAN_APP_TOKEN=
