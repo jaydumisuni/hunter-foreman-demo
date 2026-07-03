@@ -1,0 +1,12 @@
+{
+  "name": "hunter-foreman-demo",
+  "version": "0.1.0",
+  "private": false,
+  "description": "Public demo interface for Hunter Foreman.",
+  "scripts": {
+    "dev": "node server.js",
+    "start": "node server.js",
+    "test": "node scripts/smoke-test.js"
+  },
+  "license": "MIT"
+}
