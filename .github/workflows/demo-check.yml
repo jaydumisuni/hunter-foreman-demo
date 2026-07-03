@@ -1,0 +1,31 @@
+name: Demo Receiver Check
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+      - connect-main-bridge
+
+jobs:
+  smoke-test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install dependencies
+        run: npm install
+      - name: Run smoke test
+        run: npm test
+
+  docker-build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Build Docker image
+        run: docker build -t hunter-foreman-demo-receiver .
