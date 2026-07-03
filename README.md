@@ -1,24 +1,42 @@
-# Hunter Foreman Demo
+# Hunter Foreman Demo Receiver
 
-Public demo interface for Hunter Foreman, showing AI receptionist routing, task dashboard, and human escalation flows.
+Public demo receiver for Hunter Foreman app bridge tasks.
 
-This repository is for demo materials only. The main product scaffold lives in `jaydumisuni/hunter-foreman`.
+This repository receives tasks from the main `jaydumisuni/hunter-foreman` app when the bridge URL is configured.
 
-## Demo Goals
+## Run
 
-- Show a clear customer request flow.
-- Demonstrate task routing and escalation.
-- Keep the demo public-safe and easy to understand.
-- Support the AMD Developer Hackathon: ACT II submission.
+```bash
+npm install
+npm run dev
+```
 
-## Planned Demo Screens
+Open:
 
-- AI receptionist intake
-- Hunter routing result
-- Task dashboard
-- Human escalation panel
-- Email/WhatsApp handoff preview
+```text
+http://localhost:3100
+```
+
+## Docker
+
+```bash
+docker compose up --build
+```
+
+## Connect From Main App
+
+Run this receiver on port 3100, then start the main Hunter Foreman app with the receiver URL configured in the environment.
+
+When a request is submitted in the main app, it sends the created task to:
+
+```text
+POST /foreman/tasks
+```
+
+## Optional Token
+
+A shared bridge token can be configured locally for demo protection. Do not commit real secrets.
 
 ## Public Safety
 
-No secrets, no client data, no private repair modules, no production credentials.
+No secrets, no client data, no private Hunter internals, and no production credentials are required.
