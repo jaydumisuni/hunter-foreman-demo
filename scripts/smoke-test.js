@@ -7,6 +7,7 @@ const envelope = {
   eventType: 'task.created',
   source: 'hunter-foreman',
   createdAt: new Date().toISOString(),
+  receiverState: 'accepted',
   task: {
     id: 'HF-DEMO-1',
     customerName: 'Demo Customer',
@@ -20,10 +21,22 @@ const envelope = {
   ],
 };
 
+const stats = {
+  totalReceived: 1,
+  contract,
+  latestTaskId: envelope.task.id,
+  tokenRequired: false,
+};
+
 assert.ok(process.version, 'Node.js must be available');
 assert.strictEqual(envelope.contract, contract);
 assert.strictEqual(envelope.eventType, 'task.created');
+assert.strictEqual(envelope.receiverState, 'accepted');
 assert.ok(envelope.task.id);
 assert.ok(envelope.timeline.length >= 3);
+assert.strictEqual(stats.totalReceived, 1);
+assert.strictEqual(stats.contract, contract);
+assert.strictEqual(stats.latestTaskId, envelope.task.id);
+assert.strictEqual(typeof stats.tokenRequired, 'boolean');
 
 console.log('Hunter Foreman demo receiver smoke test passed');
