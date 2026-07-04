@@ -120,34 +120,33 @@ const html = `<!doctype html>
       }
     }
     function renderStats(stats){
-      document.getElementById('stats').innerHTML = `
-        <div class="stat"><span class="pill">Tasks</span><h3>${stats.totalReceived}</h3></div>
-        <div class="stat"><span class="pill">Contract</span><p><code>${escapeHtml(stats.contract)}</code></p></div>
-        <div class="stat"><span class="pill">Latest</span><p>${escapeHtml(stats.latestTaskId || 'none')}</p></div>
-        <div class="stat"><span class="pill ${stats.tokenRequired ? 'warn' : ''}">Token</span><p>${stats.tokenRequired ? 'Required' : 'Not required for demo'}</p></div>
-      `;
+      document.getElementById('stats').innerHTML =
+        '<div class="stat"><span class="pill">Tasks</span><h3>' + escapeHtml(stats.totalReceived) + '</h3></div>' +
+        '<div class="stat"><span class="pill">Contract</span><p><code>' + escapeHtml(stats.contract) + '</code></p></div>' +
+        '<div class="stat"><span class="pill">Latest</span><p>' + escapeHtml(stats.latestTaskId || 'none') + '</p></div>' +
+        '<div class="stat"><span class="pill ' + (stats.tokenRequired ? 'warn' : '') + '">Token</span><p>' + (stats.tokenRequired ? 'Required' : 'Not required for demo') + '</p></div>';
     }
     function renderTasks(tasks){
       const el = document.getElementById('tasks');
       if(!tasks.length){
-        el.innerHTML = `<div class="empty">
-          <span class="pill warn">Waiting</span>
-          <h3>No tasks received yet</h3>
-          <p>Start the connected demo from <code>hunter-foreman</code>, submit a ROSE request, then this receiver will update automatically.</p>
-          <p>Expected command from the core repo: <code>docker compose -f docker-compose.connected.yml up --build</code></p>
-        </div>`;
+        el.innerHTML = '<div class="empty">' +
+          '<span class="pill warn">Waiting</span>' +
+          '<h3>No tasks received yet</h3>' +
+          '<p>Start the connected demo from <code>hunter-foreman</code>, submit a ROSE request, then this receiver will update automatically.</p>' +
+          '<p>Expected command from the core repo: <code>docker compose -f docker-compose.connected.yml up --build</code></p>' +
+        '</div>';
         return;
       }
-      el.innerHTML = tasks.map(item => `<article class="card">
-        <span class="pill">${escapeHtml(item.contract)}</span><span class="pill">${escapeHtml(item.eventType)}</span><span class="pill">accepted</span>
-        <h3>${escapeHtml(item.task.id)}</h3>
-        <p><strong>${escapeHtml(item.task.customerName || 'Unknown customer')}</strong></p>
-        <p>${escapeHtml(item.task.workflow && item.task.workflow.label ? item.task.workflow.label : 'Workflow not supplied')}</p>
-        <p>Received: <strong>${escapeHtml(item.receivedAt)}</strong></p>
-        <h4>Timeline</h4>
-        <div class="timeline">${item.timeline.map(step => `<div><strong>${escapeHtml(step.actor)}</strong>: ${escapeHtml(step.action)}<br><small>${escapeHtml(step.at || '')}</small></div>`).join('')}</div>
-        <details><summary>Raw contract payload</summary><pre>${escapeHtml(JSON.stringify(item, null, 2))}</pre></details>
-      </article>`).join('');
+      el.innerHTML = tasks.map(item => '<article class="card">' +
+        '<span class="pill">' + escapeHtml(item.contract) + '</span><span class="pill">' + escapeHtml(item.eventType) + '</span><span class="pill">accepted</span>' +
+        '<h3>' + escapeHtml(item.task.id) + '</h3>' +
+        '<p><strong>' + escapeHtml(item.task.customerName || 'Unknown customer') + '</strong></p>' +
+        '<p>' + escapeHtml(item.task.workflow && item.task.workflow.label ? item.task.workflow.label : 'Workflow not supplied') + '</p>' +
+        '<p>Received: <strong>' + escapeHtml(item.receivedAt) + '</strong></p>' +
+        '<h4>Timeline</h4>' +
+        '<div class="timeline">' + item.timeline.map(step => '<div><strong>' + escapeHtml(step.actor) + '</strong>: ' + escapeHtml(step.action) + '<br><small>' + escapeHtml(step.at || '') + '</small></div>').join('') + '</div>' +
+        '<details><summary>Raw contract payload</summary><pre>' + escapeHtml(JSON.stringify(item, null, 2)) + '</pre></details>' +
+      '</article>').join('');
     }
     load();
     setInterval(load, 2500);
