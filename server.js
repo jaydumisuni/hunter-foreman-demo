@@ -41,11 +41,21 @@ function normalizeEnvelope(body, headers = {}) {
       source: body.source || 'hunter-foreman',
       createdAt: body.createdAt || now,
       receivedAt: now,
+      receiverState: 'accepted',
       task,
       timeline: Array.isArray(body.timeline) ? body.timeline : [
         { at: now, actor: 'Receiver', action: 'legacy_task_received' },
       ],
     },
+  };
+}
+
+function getStats() {
+  return {
+    totalReceived: receivedTasks.length,
+    contract: CONTRACT_VERSION,
+    latestTaskId: receivedTasks[0] ? receivedTasks[0].task.id : null,
+    tokenRequired: Boolean(process.env.FOREMAN_APP_TOKEN),
   };
 }
 
@@ -56,37 +66,87 @@ const html = `<!doctype html>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Hunter Foreman Demo Receiver</title>
   <style>
-    body { margin:0; font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background:#0b0d11; color:#f4f7fb; }
-    main { max-width: 980px; margin:0 auto; padding:36px 18px; }
-    .card { border:1px solid #293140; background:#151923; border-radius:22px; padding:20px; margin:14px 0; }
-    .pill { display:inline-block; padding:6px 10px; border-radius:999px; background:#202839; color:#8dffcf; font-weight:800; font-size:12px; margin-right:6px; }
-    .warn { color:#ffd166; }
-    pre { white-space:pre-wrap; background:#0f131b; border:1px solid #293140; border-radius:14px; padding:12px; color:#dce8f7; }
-    ol { color:#dce8f7; }
+    :root { color-scheme: dark; --bg:#0b0d11; --panel:#151923; --line:#293140; --text:#f4f7fb; --muted:#a7b0c0; --accent:#8dffcf; --warn:#ffd166; --danger:#ff7a90; }
+    * { box-sizing: border-box; }
+    body { margin:0; font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background:radial-gradient(circle at top,#1c2330 0,var(--bg) 48%); color:var(--text); }
+    main { max-width: 1080px; margin:0 auto; padding:36px 18px 60px; }
+    header { display:flex; justify-content:space-between; gap:16px; align-items:flex-start; flex-wrap:wrap; margin-bottom:18px; }
+    h1 { font-size: clamp(34px, 6vw, 68px); letter-spacing:-.06em; line-height:.94; margin:8px 0; }
+    p { color:var(--muted); line-height:1.55; }
+    code { color:#dce8f7; }
+    .card { border:1px solid var(--line); background:rgba(21,25,35,.92); border-radius:22px; padding:20px; margin:14px 0; box-shadow:0 20px 60px rgba(0,0,0,.28); }
+    .pill { display:inline-flex; padding:6px 10px; border-radius:999px; background:#202839; color:var(--accent); font-weight:900; font-size:12px; margin:0 6px 6px 0; }
+    .pill.warn { color:var(--warn); }
+    .pill.danger { color:var(--danger); }
+    .grid { display:grid; grid-template-columns: repeat(4, 1fr); gap:10px; }
+    .stat { border:1px solid var(--line); background:#0d1118; border-radius:16px; padding:12px; }
+    .timeline { display:grid; gap:8px; margin:12px 0; }
+    .timeline div { border:1px solid var(--line); border-radius:14px; padding:10px; background:#0d1118; }
+    pre { white-space:pre-wrap; background:#0f131b; border:1px solid var(--line); border-radius:14px; padding:12px; color:#dce8f7; overflow:auto; }
+    .empty { border:1px dashed var(--line); border-radius:18px; padding:18px; background:#10151f; }
+    @media (max-width: 850px) { .grid { grid-template-columns:1fr; } }
   </style>
 </head>
 <body>
   <main>
-    <span class="pill">External App Receiver</span>
-    <h1>Hunter Foreman Demo App</h1>
-    <p>This app receives versioned tasks from the public Hunter Foreman app bridge at <code>POST /foreman/tasks</code>.</p>
-    <section class="card"><h2>Received Tasks</h2><div id="tasks"></div></section>
+    <header>
+      <div>
+        <span class="pill">External App Receiver</span>
+        <h1>Connected Receiver App</h1>
+        <p>This app proves that Hunter Foreman can dispatch structured work to an external application using a versioned contract.</p>
+      </div>
+      <section class="card">
+        <strong>Receiver endpoint</strong>
+        <p><code>POST /foreman/tasks</code></p>
+        <p>Contract: <code>${CONTRACT_VERSION}</code></p>
+      </section>
+    </header>
+    <section class="card">
+      <h2>Live Receiver Status</h2>
+      <div id="stats" class="grid"></div>
+    </section>
+    <section class="card"><h2>Received Tasks</h2><div id="tasks"><p>Loading receiver state...</p></div></section>
   </main>
   <script>
+    function escapeHtml(value){ return String(value ?? '').replace(/[&<>'"]/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' }[char])); }
     async function load(){
-      const res = await fetch('/api/tasks');
-      const data = await res.json();
+      try {
+        const res = await fetch('/api/tasks');
+        const data = await res.json();
+        renderStats(data.stats);
+        renderTasks(data.tasks);
+      } catch (error) {
+        document.getElementById('tasks').innerHTML = '<div class="empty"><strong class="pill danger">Error</strong><p>Could not load receiver state. Refresh or restart the receiver app.</p></div>';
+      }
+    }
+    function renderStats(stats){
+      document.getElementById('stats').innerHTML = `
+        <div class="stat"><span class="pill">Tasks</span><h3>${stats.totalReceived}</h3></div>
+        <div class="stat"><span class="pill">Contract</span><p><code>${escapeHtml(stats.contract)}</code></p></div>
+        <div class="stat"><span class="pill">Latest</span><p>${escapeHtml(stats.latestTaskId || 'none')}</p></div>
+        <div class="stat"><span class="pill ${stats.tokenRequired ? 'warn' : ''}">Token</span><p>${stats.tokenRequired ? 'Required' : 'Not required for demo'}</p></div>
+      `;
+    }
+    function renderTasks(tasks){
       const el = document.getElementById('tasks');
-      if(!data.tasks.length){ el.innerHTML = '<p>No tasks received yet. Point the main Hunter Foreman app bridge here.</p>'; return; }
-      el.innerHTML = data.tasks.map(item => `<article class="card">
-        <span class="pill">${item.contract}</span><span class="pill">${item.eventType}</span>
-        <strong>${item.task.id}</strong>
-        <p>${item.task.customerName}</p>
-        <p>${item.task.workflow.label}</p>
-        <p>Received: <strong>${item.receivedAt}</strong></p>
-        <h3>Timeline</h3>
-        <ol>${item.timeline.map(step => `<li>${step.actor}: ${step.action}</li>`).join('')}</ol>
-        <pre>${JSON.stringify(item, null, 2)}</pre>
+      if(!tasks.length){
+        el.innerHTML = `<div class="empty">
+          <span class="pill warn">Waiting</span>
+          <h3>No tasks received yet</h3>
+          <p>Start the connected demo from <code>hunter-foreman</code>, submit a ROSE request, then this receiver will update automatically.</p>
+          <p>Expected command from the core repo: <code>docker compose -f docker-compose.connected.yml up --build</code></p>
+        </div>`;
+        return;
+      }
+      el.innerHTML = tasks.map(item => `<article class="card">
+        <span class="pill">${escapeHtml(item.contract)}</span><span class="pill">${escapeHtml(item.eventType)}</span><span class="pill">accepted</span>
+        <h3>${escapeHtml(item.task.id)}</h3>
+        <p><strong>${escapeHtml(item.task.customerName || 'Unknown customer')}</strong></p>
+        <p>${escapeHtml(item.task.workflow && item.task.workflow.label ? item.task.workflow.label : 'Workflow not supplied')}</p>
+        <p>Received: <strong>${escapeHtml(item.receivedAt)}</strong></p>
+        <h4>Timeline</h4>
+        <div class="timeline">${item.timeline.map(step => `<div><strong>${escapeHtml(step.actor)}</strong>: ${escapeHtml(step.action)}<br><small>${escapeHtml(step.at || '')}</small></div>`).join('')}</div>
+        <details><summary>Raw contract payload</summary><pre>${escapeHtml(JSON.stringify(item, null, 2))}</pre></details>
       </article>`).join('');
     }
     load();
@@ -96,8 +156,8 @@ const html = `<!doctype html>
 </html>`;
 
 http.createServer(async (req, res) => {
-  if (req.url === '/health') return sendJson(res, 200, { ok: true, service: 'hunter-foreman-demo-receiver', contract: CONTRACT_VERSION });
-  if (req.method === 'GET' && req.url === '/api/tasks') return sendJson(res, 200, { tasks: receivedTasks });
+  if (req.url === '/health') return sendJson(res, 200, { ok: true, service: 'hunter-foreman-demo-receiver', contract: CONTRACT_VERSION, stats: getStats() });
+  if (req.method === 'GET' && req.url === '/api/tasks') return sendJson(res, 200, { tasks: receivedTasks, stats: getStats() });
   if (req.method === 'POST' && req.url === '/foreman/tasks') {
     if (!authorized(req)) return sendJson(res, 401, { ok: false, error: 'Unauthorized' });
     try {
