@@ -1,16 +1,17 @@
 # Hunter Foreman Demo Receiver
 
-Public demo receiver for Hunter Foreman app bridge tasks.
+Public connected receiver for Hunter Foreman App Bridge tasks.
 
-This repository receives tasks from the main `jaydumisuni/hunter-foreman` app when the bridge URL is configured.
+This repository receives tasks from the main [jaydumisuni/hunter-foreman](https://github.com/jaydumisuni/hunter-foreman) application when the bridge URL is configured.
 
-## Three-Repo Phase 1 Map
+## Repository Map
 
-- Core app: `jaydumisuni/hunter-foreman`
-- Demo receiver: `jaydumisuni/hunter-foreman-demo`
-- Submission pack: `jaydumisuni/hunter-foreman-docs`
+- Core application: [jaydumisuni/hunter-foreman](https://github.com/jaydumisuni/hunter-foreman)
+- Demo receiver: [jaydumisuni/hunter-foreman-demo](https://github.com/jaydumisuni/hunter-foreman-demo)
+- Judge-facing submission pack: [jaydumisuni/hunter-foreman-docs](https://github.com/jaydumisuni/hunter-foreman-docs)
+- Supporting reviewer/proof layer: [jaydumisuni/Sergeant](https://github.com/jaydumisuni/Sergeant)
 
-Review the three repositories together before the break/test phase.
+Review these repositories together as the complete Hunter Foreman hackathon project.
 
 ## Run
 
@@ -33,9 +34,9 @@ docker compose up --build
 
 ## Connect From Main App
 
-Run this receiver on port 3100, then start the main Hunter Foreman app with the receiver URL configured in the environment.
+Run this receiver on port 3100, then start the main Hunter Foreman application with the receiver URL configured in the environment.
 
-When a request is submitted in the main app, it sends the created task to:
+When a request is submitted in the main application, it sends the created task to:
 
 ```text
 POST /foreman/tasks
@@ -49,7 +50,17 @@ The receiver accepts the versioned Foreman bridge contract:
 foreman.app.task.v1
 ```
 
-It displays the received task, event type, contract version, and ROSE → Foreman → AppBridge timeline.
+It displays the received task, event type, contract version, acknowledgement state, and ROSE → Foreman → App Bridge timeline.
+
+## Role in the Submission
+
+The main application proves intake, AI classification, task ownership, and dashboard state. This receiver proves that the workflow can leave the main application through a versioned contract and be accepted by a connected business application.
+
+The judge-facing public application is available at:
+
+```text
+https://hunter-foreman.thetechguyds.com
+```
 
 ## Optional Token
 
@@ -57,4 +68,4 @@ A shared bridge token can be configured locally for demo protection. Do not comm
 
 ## Public Safety
 
-No secrets, no client data, no private Hunter internals, and no production credentials are required.
+No secrets, client data, private Hunter internals, or production credentials are required.
