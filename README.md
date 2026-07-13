@@ -23,9 +23,11 @@ That receiver pattern is completed and verified. The remaining business work is 
 
 The broader THETECHGUY ecosystem already supports real Events, invitation, QR access, payment, referral, commission, and private WhatsApp workflows. Those production systems are intentionally not connected to this public receiver because they require private credentials, client records, transaction data, and internal infrastructure.
 
-## Run
+## Clone and Run
 
 ```bash
+git clone https://github.com/jaydumisuni/hunter-foreman-demo.git
+cd hunter-foreman-demo
 npm install
 npm run dev
 ```
@@ -39,6 +41,8 @@ http://localhost:3100
 ## Docker
 
 ```bash
+git clone https://github.com/jaydumisuni/hunter-foreman-demo.git
+cd hunter-foreman-demo
 docker compose up --build
 ```
 
