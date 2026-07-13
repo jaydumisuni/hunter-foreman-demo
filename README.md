@@ -74,6 +74,8 @@ The judge-facing public application is available at:
 https://hunter-foreman.thetechguyds.com
 ```
 
+The public hub is intentionally screenshot-driven, but it is interactive. Its navigation, buttons, image hotspots, Hunter guide, and **Launch Interactive Demo** control are clickable. **Watch Demo** is the animated preview; **Launch Interactive Demo** opens the working browser demo. This repository remains the optional port-3100 App Bridge receiver.
+
 The operating business context is visible at:
 
 ```text
