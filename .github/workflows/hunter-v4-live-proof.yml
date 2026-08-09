@@ -18,6 +18,8 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '20'
+      - name: Syntax check proof
+        run: node --check proof/hunter-v4-live-isolated.mjs
       - name: Install Playwright
         run: |
           npm init -y >/dev/null 2>&1
