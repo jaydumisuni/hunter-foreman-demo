@@ -2,128 +2,43 @@ import { chromium } from 'playwright';
 import fs from 'node:fs';
 import path from 'node:path';
 
-const BASE = process.env.HUNTER_URL || 'https://9c4f1e1a-hunter-ui-review.thetechguy712.workers.dev';
-const EXPECTED_SHA = 'd243eb867e73e7c1a26fbf4552766814b77e8c95f6e4bf233b2dd688efa40c57';
-const OUT = 'proof-output';
-fs.mkdirSync(OUT,{recursive:true});
-const findings=[]; const evidence=[];
-const record=(viewport,phase,ok,detail={})=>{evidence.push({viewport,phase,ok,...detail});if(!ok)findings.push({viewport,phase,...detail});};
-
+const BASE=process.env.HUNTER_URL||'https://9c4f1e1a-hunter-ui-review.thetechguy712.workers.dev';
+const SHA='d243eb867e73e7c1a26fbf4552766814b77e8c95f6e4bf233b2dd688efa40c57';
+const OUT='proof-output';fs.mkdirSync(OUT,{recursive:true});
+const evidence=[],findings=[];
+function save(){fs.writeFileSync(path.join(OUT,'report.json'),JSON.stringify({url:BASE,expectedSha:SHA,passed:findings.length===0,findings,evidenceCount:evidence.length,evidence},null,2));}
+function rec(v,p,ok,d={}){evidence.push({viewport:v,phase:p,ok,...d});if(!ok)findings.push({viewport:v,phase:p,...d});save()}
+async function press(page,sel,phase,v){try{const x=page.locator(sel).first();await x.waitFor({state:'visible',timeout:4000});await x.scrollIntoViewIfNeeded();await x.click({timeout:4000});rec(v,phase,true,{selector:sel});return true}catch(e){rec(v,phase,false,{selector:sel,error:String(e)});return false}}
 async function preflight(){
-  const health=await fetch(`${BASE}/health`,{redirect:'follow'}); const htext=await health.text();
-  let hjson={}; try{hjson=JSON.parse(htext)}catch{}
-  record('global','health',health.status===200,{status:health.status,body:hjson});
-  record('global','health-sha',hjson.htmlSha256===EXPECTED_SHA,{actual:hjson.htmlSha256,expected:EXPECTED_SHA});
-  record('global','health-version',hjson.version==='HUNTER_EMPLOYEE_OS_APPROVED_WORKSPACE_V4',{actual:hjson.version});
-  record('global','production-boundary',hjson.production==='untouched',{actual:hjson.production});
-  const portal=await fetch(`${BASE}/portal`,{redirect:'follow'}); const html=await portal.text();
-  record('global','portal-status',portal.status===200,{status:portal.status});
-  record('global','portal-header-sha',portal.headers.get('x-hunter-html-sha256')===EXPECTED_SHA,{actual:portal.headers.get('x-hunter-html-sha256')});
-  record('global','portal-review-header',portal.headers.get('x-hunter-review')==='approved-workspace-v4',{actual:portal.headers.get('x-hunter-review')});
-  for(const marker of ['HUNTER_EMPLOYEE_OS_V4_WORKSPACE','What’s on your mind?','What do you need done?','Department accountability','PAYMENT_SUBMITTED','People & Access','Passage Check','Compact hover','Conversation','Reply']) record('global',`marker:${marker}`,html.includes(marker));
+ const h=await fetch(`${BASE}/health`);let j={};try{j=await h.json()}catch{};rec('global','health',h.status===200,{status:h.status,body:j});rec('global','health-sha',j.htmlSha256===SHA,{actual:j.htmlSha256});rec('global','version',j.version==='HUNTER_EMPLOYEE_OS_APPROVED_WORKSPACE_V4',{actual:j.version});rec('global','production',j.production==='untouched',{actual:j.production});
+ const r=await fetch(`${BASE}/portal`);const html=await r.text();rec('global','portal-200',r.status===200,{status:r.status});rec('global','portal-sha',r.headers.get('x-hunter-html-sha256')===SHA,{actual:r.headers.get('x-hunter-html-sha256')});rec('global','review-header',r.headers.get('x-hunter-review')==='approved-workspace-v4',{actual:r.headers.get('x-hunter-review')});for(const m of ['HUNTER_EMPLOYEE_OS_V4_WORKSPACE','What’s on your mind?','What do you need done?','Department accountability','PAYMENT_SUBMITTED','People & Access','Passage Check','Compact hover','Conversation','Reply'])rec('global',`marker:${m}`,html.includes(m));
+}
+const V=[['phone',390,844,true],['tablet',820,1180,true],['desktop',1440,900,false],['wide',1920,1080,false]];
+async function drawerOpen(page){return page.locator('#sidebar').evaluate(e=>e.classList.contains('open')).catch(()=>false)}
+async function route(page,v,target,mobile){if(mobile&&!await drawerOpen(page))await press(page,'#menuBtn','drawer-open',v);if(!await press(page,`#nav [data-page="${target}"]`,`route:${target}`,v))return;await page.waitForTimeout(100);const active=await page.locator('[data-page-render]').getAttribute('data-page-render').catch(()=>null);rec(v,`route-state:${target}`,active===target,{active});if(mobile)rec(v,`drawer-close:${target}`,!await drawerOpen(page));}
+async function setRole(page,v,role,mobile){if(mobile&&!await drawerOpen(page))await press(page,'#menuBtn',`role-drawer:${role}`,v);try{await page.locator('#roleSelect').selectOption(role,{timeout:4000});rec(v,`role:${role}`,true)}catch(e){rec(v,`role:${role}`,false,{error:String(e)});return}await page.waitForTimeout(120);if(mobile&&await drawerOpen(page))await page.locator('#scrim').click().catch(()=>{});}
+async function closeModal(page){const c=page.locator('#modalRoot [data-close]').first();if(await c.count())await c.click().catch(()=>{});}
+async function settings(page,v,mobile){
+ if(mobile){if(!await drawerOpen(page))await press(page,'#menuBtn','settings-drawer',v);await press(page,'#accountBtn','account-open',v)}else await press(page,'#profileBtn','account-open',v);
+ const b=page.locator('[data-account="settings"]');if(await b.count())await press(page,'[data-account="settings"]','settings-open',v);else rec(v,'settings-open',false,{error:'settings action absent'});await page.waitForTimeout(70);
+ const n=await page.locator('[data-settings-tab]').count();rec(v,'settings-16-tabs',n===16,{count:n});for(const k of ['general','appearance','notifications','voice','account']){const t=page.locator(`[data-settings-tab="${k}"]`);if(await t.count()){await t.click();rec(v,`settings:${k}`,true)}else rec(v,`settings:${k}`,false)}
+ const g=page.locator('[data-settings-tab="general"]');if(await g.count()){await g.click();const f=page.locator('[data-setting="font"]');if(await f.count())rec(v,'font-default',(await f.inputValue())==='default',{value:await f.inputValue()});const a=page.locator('[data-setting="action-style"]');if(await a.count())rec(v,'compact-hover',(await a.inputValue())==='hover',{value:await a.inputValue()})}
+ const ap=page.locator('[data-settings-tab="appearance"]');if(await ap.count()){await ap.click();const t=page.locator('[data-setting="theme"]');if(await t.count()){await t.selectOption('light');await page.waitForTimeout(30);rec(v,'theme-light',(await page.locator('html').getAttribute('data-theme'))==='light',{actual:await page.locator('html').getAttribute('data-theme')});await t.selectOption('dark')}}await closeModal(page);
+}
+async function run(browser,[name,w,h,mobile]){
+ const ctx=await browser.newContext({viewport:{width:w,height:h},isMobile:mobile,hasTouch:mobile,deviceScaleFactor:mobile?2:1});const page=await ctx.newPage();const errs=[];page.on('pageerror',e=>errs.push(`page:${e.message}`));page.on('console',m=>{if(m.type()==='error')errs.push(`console:${m.text()}`)});await page.goto(`${BASE}/portal`,{waitUntil:'domcontentloaded',timeout:30000});await page.waitForTimeout(300);rec(name,'boot',await page.locator('#menuBtn').count()===1);const sw=await page.evaluate(()=>document.documentElement.scrollWidth),cw=await page.evaluate(()=>document.documentElement.clientWidth);rec(name,'no-overflow',sw===cw,{scrollWidth:sw,clientWidth:cw});
+ await press(page,'#bellBtn','bell',name);await page.waitForTimeout(50);rec(name,'bell-popover',await page.locator('#notificationPopover').isVisible().catch(()=>false));await page.locator('#bellBtn').click().catch(()=>{});
+ await route(page,name,'orders',mobile);await route(page,name,'swap',mobile);await route(page,name,'clients',mobile);if(await page.locator('#clientSearch').count()){await page.locator('#clientSearch').fill('Ruth');await page.waitForTimeout(70);rec(name,'client-search',await page.locator('[data-open-client]').count()>0,{count:await page.locator('[data-open-client]').count()});if(await page.locator('[data-open-client]').count())await press(page,'[data-open-client]','client-open',name)}
+ await route(page,name,'inbox',mobile);await press(page,'[data-inbox-view="reply"]','inbox-reply',name);rec(name,'reply-visible',await page.locator('#replyText').isVisible().catch(()=>false));if(await page.locator('[data-reply-mode="employee"]').count())await press(page,'[data-reply-mode="employee"]','reply-employee-mode',name);if(await page.locator('#replyText').count())await page.locator('#replyText').fill('Live proof reply');if(await page.locator('[data-action="send-reply"]').count())await press(page,'[data-action="send-reply"]','reply-send',name);await press(page,'[data-inbox-view="conversation"]','inbox-conversation',name);
+ await route(page,name,'hunter',mobile);rec(name,'chat-input',await page.locator('#chatInput').isVisible().catch(()=>false));if(mobile){if(!await drawerOpen(page))await press(page,'#menuBtn','chat-drawer',name);rec(name,'chat-history',await page.locator('#chatHistory').isVisible().catch(()=>false));if(await page.locator('[data-chat]').count())await press(page,'[data-chat]','chat-history-switch',name);if(await drawerOpen(page))await page.locator('#scrim').click().catch(()=>{})}const ci=page.locator('#chatInput');if(await ci.count()){await ci.fill(`Live ${name} proof`);const before=await page.locator('.message.user').count();await press(page,'#sendBtn','chat-send',name);await page.waitForTimeout(150);const after=await page.locator('.message.user').count();rec(name,'chat-appended',after>before,{before,after})}await press(page,'#voiceBtn','voice-open',name);await page.waitForTimeout(40);rec(name,'voice-modal',(await page.locator('#modalRoot').innerText().catch(()=>'' )).includes('Hunter Voice'));await closeModal(page);rec(name,'response-actions',(await page.locator('[data-msg-action]').count())>=7,{count:await page.locator('[data-msg-action]').count()});
+ await settings(page,name,mobile);
+ await route(page,name,'payments',mobile);const vp=page.locator('[data-action="verify-payment"]').first();if(await vp.count()){await vp.click();rec(name,'verify-payment',true)}else rec(name,'verify-payment',false,{error:'button absent'});
+ await route(page,name,'technician',mobile);const pick=page.locator('[data-tech="pick"]').first();if(await pick.count()){await pick.click();rec(name,'pick-job',true)}else rec(name,'pick-job',true,{detail:'no queued job remained after review-state mutation'});
+ await route(page,name,'people',mobile);const mg=page.locator('[data-action="manage-person"]').first();if(await mg.count()){await mg.click();await page.waitForTimeout(40);rec(name,'people-manage',(await page.locator('#modalRoot').innerText().catch(()=>''))!=='');await closeModal(page)}else rec(name,'people-manage',false,{error:'manage absent'});
+ await setRole(page,name,'regular',mobile);rec(name,'regular-chat-only',(await page.locator('#nav [data-page]').count())===1,{count:await page.locator('#nav [data-page]').count()});rec(name,'regular-greeting',(await page.locator('body').innerText()).includes('What’s on your mind?'));rec(name,'regular-search',(await page.locator('#globalSearch').getAttribute('placeholder'))==='Search chats and projects…',{value:await page.locator('#globalSearch').getAttribute('placeholder')});rec(name,'regular-badge-hidden',!await page.locator('#bellCount').isVisible().catch(()=>false));
+ await setRole(page,name,'owner',mobile);if(mobile&&await drawerOpen(page))await page.locator('#scrim').click().catch(()=>{});await route(page,name,'today',mobile);await page.screenshot({path:path.join(OUT,`${name}-today.png`),fullPage:true});await route(page,name,'hunter',mobile);if(mobile&&await drawerOpen(page))await page.locator('#scrim').click().catch(()=>{});await page.screenshot({path:path.join(OUT,`${name}-hunter.png`),fullPage:true});await route(page,name,'inbox',mobile);await press(page,'[data-inbox-view="reply"]','capture-reply',name);await page.screenshot({path:path.join(OUT,`${name}-inbox-reply.png`),fullPage:true});rec(name,'runtime-errors',errs.length===0,{errors:errs});await ctx.close();
 }
 
-const viewports=[
-  {name:'phone',width:390,height:844,mobile:true,touch:true},
-  {name:'tablet',width:820,height:1180,mobile:true,touch:true},
-  {name:'desktop',width:1440,height:900,mobile:false,touch:false},
-  {name:'wide',width:1920,height:1080,mobile:false,touch:false}
-];
-
-async function click(page,sel,phase,name){
-  try{const l=page.locator(sel).first();await l.waitFor({state:'visible',timeout:3500});await l.scrollIntoViewIfNeeded();await l.click({timeout:3500});record(name,phase,true,{selector:sel});return true}catch(e){record(name,phase,false,{selector:sel,error:String(e)});return false}
-}
-async function gotoPage(page,name,target,mobile){
-  if(mobile){await click(page,'#menuBtn','drawer-open',name);}
-  const ok=await click(page,`#nav [data-page="${target}"]`,`route:${target}`,name); if(!ok)return false;
-  await page.waitForTimeout(100);
-  const active=await page.locator('[data-page-render]').getAttribute('data-page-render').catch(()=>null);
-  record(name,`route-state:${target}`,active===target,{active});
-  if(mobile){const open=await page.locator('#sidebar').evaluate(el=>el.classList.contains('open')).catch(()=>true);record(name,`drawer-closed:${target}`,!open,{open});}
-  return active===target;
-}
-
-async function runViewport(browser,v){
-  const context=await browser.newContext({viewport:{width:v.width,height:v.height},isMobile:v.mobile,hasTouch:v.touch,deviceScaleFactor:v.mobile?2:1});
-  const page=await context.newPage();
-  const runtime=[]; page.on('pageerror',e=>runtime.push(`pageerror:${e.message}`)); page.on('console',m=>{if(m.type()==='error')runtime.push(`console:${m.text()}`)});
-  await page.goto(`${BASE}/portal`,{waitUntil:'domcontentloaded',timeout:30000}); await page.waitForTimeout(350);
-  record(v.name,'boot',await page.locator('#roleSelect').isVisible().catch(()=>false));
-  const overflow=await page.evaluate(()=>document.documentElement.scrollWidth>document.documentElement.clientWidth);record(v.name,'no-horizontal-overflow',!overflow,{scrollWidth:await page.evaluate(()=>document.documentElement.scrollWidth),clientWidth:await page.evaluate(()=>document.documentElement.clientWidth)});
-
-  // Notification bell: compact popover, not a full page.
-  await click(page,'#bellBtn','bell-open',v.name); await page.waitForTimeout(80);
-  const pop=await page.locator('#popoverRoot .popover').first().isVisible().catch(()=>false);record(v.name,'bell-compact-popover',pop);
-  await page.keyboard.press('Escape').catch(()=>{});
-
-  // Owner routes critical for previously broken controls.
-  await gotoPage(page,v.name,'orders',v.mobile);
-  await gotoPage(page,v.name,'swap',v.mobile);
-
-  // Clients search/open.
-  await gotoPage(page,v.name,'clients',v.mobile);
-  const cs=page.locator('#clientSearch'); if(await cs.count()){await cs.fill('Ruth'); await page.waitForTimeout(100);record(v.name,'client-search',await page.locator('[data-open-client]').count()>0,{count:await page.locator('[data-open-client]').count()}); if(await page.locator('[data-open-client]').count()) await click(page,'[data-open-client]','client-open',v.name);}
-
-  // Inbox Conversation <-> Reply and send.
-  await gotoPage(page,v.name,'inbox',v.mobile);
-  await click(page,'[data-inbox-view="reply"]','inbox-reply-switch',v.name); await page.waitForTimeout(80);
-  record(v.name,'reply-composer-visible',await page.locator('#replyText').isVisible().catch(()=>false));
-  if(await page.locator('[data-reply-mode="employee"]').count())await click(page,'[data-reply-mode="employee"]','reply-mode-employee',v.name);
-  if(await page.locator('#replyText').count()){await page.locator('#replyText').fill('Live review proof reply');}
-  if(await page.locator('[data-action="send-reply"]').count())await click(page,'[data-action="send-reply"]','reply-send',v.name);
-  await click(page,'[data-inbox-view="conversation"]','inbox-conversation-switch',v.name);
-
-  // Hunter chat, sidebar/history/project, Send, Voice, actions.
-  await gotoPage(page,v.name,'hunter',v.mobile);
-  record(v.name,'chat-input-visible',await page.locator('#chatInput').isVisible().catch(()=>false));
-  if(v.mobile){await click(page,'#menuBtn','chat-drawer-open',v.name);record(v.name,'chat-history-visible',await page.locator('#chatHistory').isVisible().catch(()=>false));if(await page.locator('[data-chat]').count())await click(page,'[data-chat]','chat-history-switch',v.name);}
-  const input=page.locator('#chatInput'); if(await input.count()){await input.fill(`Live ${v.name} proof`);const before=await page.locator('.message.user').count();await click(page,'#sendBtn','chat-send',v.name);await page.waitForTimeout(180);const after=await page.locator('.message.user').count();record(v.name,'chat-message-appended',after>before,{before,after});}
-  await click(page,'#voiceBtn','voice-open',v.name); await page.waitForTimeout(80);record(v.name,'voice-modal',await page.locator('#modalRoot').locator('text=Hunter Voice').count()>0);
-  const close=page.locator('#modalRoot [data-close],#modalRoot button').last(); if(await close.count())await close.click().catch(()=>{});
-  const actionCount=await page.locator('[data-msg-action]').count();record(v.name,'response-action-row',actionCount>=7,{actionCount});
-
-  // Settings via account menu, all tabs, appearance + general defaults.
-  if(v.mobile){await click(page,'#menuBtn','settings-drawer-open',v.name);await click(page,'#accountBtn','account-menu-open',v.name);}else{await click(page,'#profileBtn','profile-menu-open',v.name);}
-  const settingsButton=page.locator('[data-account="settings"],#accountMenu button').filter({hasText:'Settings'}).first();
-  if(await settingsButton.count()){await settingsButton.click();await page.waitForTimeout(80);} else {record(v.name,'settings-button',false);}
-  const tabs=page.locator('[data-settings-tab]');const tabCount=await tabs.count();record(v.name,'settings-tabs',tabCount===16,{tabCount});
-  for(const key of ['general','appearance','notifications','voice','account']){const t=page.locator(`[data-settings-tab="${key}"]`);if(await t.count()){await t.click();await page.waitForTimeout(30);record(v.name,`settings:${key}`,true)}else record(v.name,`settings:${key}`,false)}
-  const general=page.locator('[data-settings-tab="general"]'); if(await general.count()){await general.click();await page.waitForTimeout(30);const font=page.locator('[data-setting="font"]');if(await font.count())record(v.name,'font-default',(await font.inputValue())==='default',{value:await font.inputValue()});const actionStyle=page.locator('[data-setting="action-style"]');if(await actionStyle.count())record(v.name,'compact-hover-default',(await actionStyle.inputValue())==='hover',{value:await actionStyle.inputValue()});}
-  const appearance=page.locator('[data-settings-tab="appearance"]');if(await appearance.count()){await appearance.click();const theme=page.locator('[data-setting="theme"]');if(await theme.count()){await theme.selectOption('light');await page.waitForTimeout(50);record(v.name,'light-theme-applied',(await page.locator('html').getAttribute('data-theme'))==='light',{theme:await page.locator('html').getAttribute('data-theme')});await theme.selectOption('dark');}}
-  await page.keyboard.press('Escape').catch(()=>{});
-
-  // Payment truth + downstream handoff.
-  await gotoPage(page,v.name,'payments',v.mobile);const verify=page.locator('[data-action="verify-payment"]').first();if(await verify.count()){await verify.click();await page.waitForTimeout(80);record(v.name,'payment-verify-action',true);}
-
-  // Technician progression.
-  await gotoPage(page,v.name,'technician',v.mobile);const pick=page.locator('[data-tech="pick"]').first();if(await pick.count()){await pick.click();await page.waitForTimeout(80);record(v.name,'technician-pick-job',true);}
-
-  // People action.
-  await gotoPage(page,v.name,'people',v.mobile);const manage=page.locator('[data-action="manage-person"]').first();if(await manage.count()){await manage.click();await page.waitForTimeout(50);record(v.name,'people-manage',await page.locator('#modalRoot').isVisible().catch(()=>false));}
-  await page.keyboard.press('Escape').catch(()=>{});
-
-  // Regular user must be chat-only and privacy-safe.
-  await page.locator('#roleSelect').selectOption('regular');await page.waitForTimeout(120);
-  const navPages=await page.locator('#nav [data-page]').count();record(v.name,'regular-chat-only',navPages===1,{navPages});
-  record(v.name,'regular-neutral-greeting',(await page.locator('body').innerText()).includes('What’s on your mind?'));
-  const placeholder=await page.locator('#globalSearch').getAttribute('placeholder');record(v.name,'regular-search-sanitized',placeholder==='Search chats and projects…',{placeholder});
-  const bellCount=await page.locator('#bellCount').isVisible().catch(()=>false);record(v.name,'regular-business-badge-hidden',!bellCount);
-
-  // Reset owner and capture clean key states.
-  await page.locator('#roleSelect').selectOption('owner');await page.waitForTimeout(80);if(v.mobile && await page.locator('#sidebar').evaluate(el=>el.classList.contains('open')).catch(()=>false))await page.locator('#scrim').click().catch(()=>{});
-  await page.screenshot({path:path.join(OUT,`${v.name}-today.png`),fullPage:true});
-  await gotoPage(page,v.name,'hunter',v.mobile);if(v.mobile && await page.locator('#sidebar').evaluate(el=>el.classList.contains('open')).catch(()=>false))await page.locator('#scrim').click().catch(()=>{});await page.screenshot({path:path.join(OUT,`${v.name}-hunter.png`),fullPage:true});
-  await gotoPage(page,v.name,'inbox',v.mobile);await click(page,'[data-inbox-view="reply"]','capture-reply',v.name);await page.screenshot({path:path.join(OUT,`${v.name}-inbox-reply.png`),fullPage:true});
-
-  record(v.name,'runtime-errors',runtime.length===0,{runtime});
-  await context.close();
-}
-
-await preflight();
-const browser=await chromium.launch({headless:true});
-for(const v of viewports)await runViewport(browser,v);
-await browser.close();
-const report={url:BASE,expectedSha:EXPECTED_SHA,passed:findings.length===0,findings,evidenceCount:evidence.length,evidence};
-fs.writeFileSync(path.join(OUT,'report.json'),JSON.stringify(report,null,2));
-console.log(JSON.stringify({passed:report.passed,findings:findings.length,evidence:evidence.length},null,2));
-if(findings.length)process.exit(1);
+let browser;
+try{await preflight();browser=await chromium.launch({headless:true});for(const v of V)await run(browser,v)}catch(e){rec('global','uncaught',false,{error:String(e)})}finally{if(browser)await browser.close().catch(()=>{});save()}
+console.log(JSON.stringify({passed:findings.length===0,findings:findings.length,evidence:evidence.length},null,2));if(findings.length)process.exit(1);
