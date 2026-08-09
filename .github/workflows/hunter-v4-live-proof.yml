@@ -18,6 +18,15 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '20'
+      - name: Apply proof-only state isolation
+        run: |
+          python3 - <<'PY'
+          p='proof/hunter-v4-live-isolated.mjs'
+          s=open(p).read()
+          s=s.replace("if (await verify.count()) { await verify.click(); rec('payment-verify', true); }", "if (await verify.count()) { await verify.click(); rec('payment-verify', true); await closeModal(page); }")
+          s=s.replace("if (await pick.count()) { await pick.click(); rec('technician-pick', true); }", "if (await pick.count()) { await pick.click(); rec('technician-pick', true); await closeModal(page); }")
+          open(p,'w').write(s)
+          PY
       - name: Syntax check proof
         run: node --check proof/hunter-v4-live-isolated.mjs
       - name: Install Playwright
