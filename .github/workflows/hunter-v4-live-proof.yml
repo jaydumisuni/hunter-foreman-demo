@@ -7,8 +7,12 @@ on:
 
 jobs:
   live-proof:
+    strategy:
+      fail-fast: false
+      matrix:
+        viewport: [phone, tablet, desktop, wide]
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -19,6 +23,17 @@ jobs:
           npm init -y >/dev/null 2>&1
           npm install playwright@1.54.2
           npx playwright install --with-deps chromium
+      - name: Scope proof to one viewport
+        env:
+          VIEWPORT: ${{ matrix.viewport }}
+        run: |
+          node - <<'NODE'
+          const fs=require('fs');
+          const p='proof/hunter-v4-live-proof.mjs';
+          let s=fs.readFileSync(p,'utf8');
+          s=s.replace('for(const v of V)await run(browser,v)',`for(const v of V.filter(x=>x[0]===${JSON.stringify(process.env.VIEWPORT)}))await run(browser,v)`);
+          fs.writeFileSync(p,s);
+          NODE
       - name: Run exact deployed Hunter V4 proof
         env:
           HUNTER_URL: https://9c4f1e1a-hunter-ui-review.thetechguy712.workers.dev
@@ -27,7 +42,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: hunter-v4-live-proof
+          name: hunter-v4-live-proof-${{ matrix.viewport }}
           path: proof-output
           retention-days: 1
           if-no-files-found: warn
