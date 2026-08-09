@@ -1,0 +1,33 @@
+name: Hunter V4 live proof
+
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  live-proof:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Install Playwright
+        run: |
+          npm init -y >/dev/null 2>&1
+          npm install playwright@1.54.2
+          npx playwright install --with-deps chromium
+      - name: Run exact deployed Hunter V4 proof
+        env:
+          HUNTER_URL: https://9c4f1e1a-hunter-ui-review.thetechguy712.workers.dev
+        run: node proof/hunter-v4-live-proof.mjs
+      - name: Upload proof even on failure
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: hunter-v4-live-proof
+          path: proof-output
+          retention-days: 1
+          if-no-files-found: warn
