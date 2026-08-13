@@ -1,0 +1,40 @@
+name: Hunter V5 exact deployed proof
+
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  live-proof:
+    strategy:
+      fail-fast: false
+      matrix:
+        viewport: [phone, tablet, desktop, wide]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Syntax check proof
+        run: node --check proof/v5-current-deployed.mjs
+      - name: Install Playwright
+        run: |
+          npm init -y >/dev/null 2>&1
+          npm install playwright@1.54.2
+          npx playwright install --with-deps chromium
+      - name: Run exact deployed Hunter V5 proof
+        env:
+          HUNTER_URL: https://19e6fe49-hunter-ui-review.thetechguy712.workers.dev
+          VIEWPORT: ${{ matrix.viewport }}
+        run: node proof/v5-current-deployed.mjs
+      - name: Upload proof even on failure
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: hunter-v5-current-proof-${{ matrix.viewport }}
+          path: proof-output
+          retention-days: 1
+          if-no-files-found: warn
