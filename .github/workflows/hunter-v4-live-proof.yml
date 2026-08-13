@@ -1,4 +1,4 @@
-name: Hunter V4 live proof
+name: Hunter V5 exact deployed proof
 
 on:
   pull_request:
@@ -18,32 +18,23 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '20'
-      - name: Apply proof-only state isolation
-        run: |
-          python3 - <<'PY'
-          p='proof/hunter-v4-live-isolated.mjs'
-          s=open(p).read()
-          s=s.replace("if (await verify.count()) { await verify.click(); rec('payment-verify', true); }", "if (await verify.count()) { await verify.click(); rec('payment-verify', true); await closeModal(page); }")
-          s=s.replace("if (await pick.count()) { await pick.click(); rec('technician-pick', true); }", "if (await pick.count()) { await pick.click(); rec('technician-pick', true); await closeModal(page); }")
-          open(p,'w').write(s)
-          PY
       - name: Syntax check proof
-        run: node --check proof/hunter-v4-live-isolated.mjs
+        run: node --check proof/v5-current-deployed.mjs
       - name: Install Playwright
         run: |
           npm init -y >/dev/null 2>&1
           npm install playwright@1.54.2
           npx playwright install --with-deps chromium
-      - name: Run exact deployed Hunter V4 proof
+      - name: Run exact deployed Hunter V5 proof
         env:
-          HUNTER_URL: https://9c4f1e1a-hunter-ui-review.thetechguy712.workers.dev
+          HUNTER_URL: https://19e6fe49-hunter-ui-review.thetechguy712.workers.dev
           VIEWPORT: ${{ matrix.viewport }}
-        run: node proof/hunter-v4-live-isolated.mjs
+        run: node proof/v5-current-deployed.mjs
       - name: Upload proof even on failure
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: hunter-v4-live-proof-${{ matrix.viewport }}
+          name: hunter-v5-current-proof-${{ matrix.viewport }}
           path: proof-output
           retention-days: 1
           if-no-files-found: warn
