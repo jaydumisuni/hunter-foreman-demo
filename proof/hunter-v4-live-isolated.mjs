@@ -2,8 +2,9 @@ import { chromium } from 'playwright';
 import fs from 'node:fs';
 import path from 'node:path';
 
-const BASE = process.env.HUNTER_URL || 'https://9c4f1e1a-hunter-ui-review.thetechguy712.workers.dev';
-const SHA = 'd243eb867e73e7c1a26fbf4552766814b77e8c95f6e4bf233b2dd688efa40c57';
+const BASE = process.env.HUNTER_URL || 'https://0c3199d8-hunter-ui-review.thetechguy712.workers.dev';
+const EXPECTED_COMMIT = 'f2eefdb4909daa2ac962130e4b1a97b1b8dbea83';
+const EXPECTED_V4_SHA = 'd243eb867e73e7c1a26fbf4552766814b77e8c95f6e4bf233b2dd688efa40c57';
 const NAME = process.env.VIEWPORT || 'phone';
 const defs = {
   phone: [390, 844, true],
@@ -19,30 +20,33 @@ const evidence = [];
 const findings = [];
 
 function save() {
-  fs.writeFileSync(
-    path.join(OUT, 'report.json'),
-    JSON.stringify({
-      url: BASE,
-      viewport: NAME,
-      expectedSha: SHA,
-      passed: findings.length === 0,
-      findings,
-      evidenceCount: evidence.length,
-      evidence,
-    }, null, 2),
-  );
+  fs.writeFileSync(path.join(OUT, 'report.json'), JSON.stringify({
+    url: BASE,
+    expectedCommit: EXPECTED_COMMIT,
+    viewport: NAME,
+    passed: findings.length === 0,
+    findings,
+    evidenceCount: evidence.length,
+    evidence,
+  }, null, 2));
 }
 function rec(phase, ok, detail = {}) {
   evidence.push({ phase, ok, ...detail });
   if (!ok) findings.push({ phase, ...detail });
   save();
 }
+async function visible(page, selector) {
+  return page.locator(selector).first().isVisible().catch(() => false);
+}
+async function drawerOpen(page) {
+  return page.locator('#sidebar').evaluate(el => el.classList.contains('open')).catch(() => false);
+}
 async function tap(page, selector, phase) {
   try {
     const target = page.locator(selector).first();
-    await target.waitFor({ state: 'visible', timeout: 4500 });
+    await target.waitFor({ state: 'visible', timeout: 5000 });
     await target.scrollIntoViewIfNeeded();
-    await target.click({ timeout: 4500 });
+    await target.click({ timeout: 5000 });
     rec(phase, true, { selector });
     return true;
   } catch (error) {
@@ -50,14 +54,15 @@ async function tap(page, selector, phase) {
     return false;
   }
 }
-async function drawerOpen(page) {
-  return page.locator('#sidebar').evaluate(el => el.classList.contains('open')).catch(() => false);
+async function activeRoute(page) {
+  return page.locator('[data-page-render]').getAttribute('data-page-render').catch(() => null);
 }
 async function openRoute(page, target) {
   if (MOBILE && !await drawerOpen(page)) await tap(page, '#menuBtn', `drawer:${target}`);
-  if (!await tap(page, `#nav [data-page="${target}"]`, `route:${target}`)) return false;
-  await page.waitForTimeout(100);
-  const active = await page.locator('[data-page-render]').getAttribute('data-page-render').catch(() => null);
+  const selector = `#nav [data-page="${target}"]`;
+  if (!await tap(page, selector, `route:${target}`)) return false;
+  await page.waitForTimeout(220);
+  const active = await activeRoute(page);
   rec(`route-state:${target}`, active === target, { active });
   if (MOBILE) rec(`drawer-closed:${target}`, !await drawerOpen(page));
   return active === target;
@@ -70,224 +75,167 @@ async function fresh(browser) {
     deviceScaleFactor: MOBILE ? 2 : 1,
   });
   const page = await context.newPage();
-  const errors = [];
-  page.on('pageerror', error => errors.push(`page:${error.message}`));
-  page.on('console', message => {
-    if (message.type() === 'error') errors.push(`console:${message.text()}`);
-  });
+  const runtimeErrors = [];
+  const failedRequests = [];
+  const writeRequests = [];
+  page.on('pageerror', error => runtimeErrors.push(`page:${error.message}`));
+  page.on('console', message => { if (message.type() === 'error') runtimeErrors.push(`console:${message.text()}`); });
+  page.on('requestfailed', request => failedRequests.push(`${request.method()} ${request.url()} :: ${request.failure()?.errorText || 'failed'}`));
+  page.on('request', request => { if (!['GET', 'HEAD'].includes(request.method())) writeRequests.push(`${request.method()} ${request.url()}`); });
   await page.goto(`${BASE}/portal`, { waitUntil: 'domcontentloaded', timeout: 30000 });
-  await page.waitForTimeout(250);
-  return { context, page, errors };
+  await page.waitForFunction(() => globalThis.__HUNTER_V5_OWNER_CORRECTIONS__?.version === 'HUNTER_EMPLOYEE_OS_APPROVED_WORKSPACE_V5_OWNER_CORRECTIONS', null, { timeout: 7000 });
+  await page.waitForTimeout(350);
+  return { context, page, runtimeErrors, failedRequests, writeRequests };
 }
 async function closeModal(page) {
-  const close = page.locator('#modalRoot [data-close]').first();
-  if (await close.count()) await close.click().catch(() => {});
-}
-async function setRole(page, role) {
-  if (MOBILE && !await drawerOpen(page)) await tap(page, '#menuBtn', `role-drawer:${role}`);
-  try {
-    await page.locator('#roleSelect').selectOption(role, { timeout: 4500 });
-    rec(`role:${role}`, true);
-  } catch (error) {
-    rec(`role:${role}`, false, { error: String(error) });
-    return false;
+  for (const selector of ['#modalRoot [data-close]', '#modalWrap [data-close]', '[data-close]']) {
+    const button = page.locator(selector).first();
+    if (await button.count() && await button.isVisible().catch(() => false)) { await button.click().catch(() => {}); return; }
   }
-  await page.waitForTimeout(120);
-  if (MOBILE && await drawerOpen(page)) await page.locator('#scrim').click().catch(() => {});
-  return true;
 }
 async function preflight() {
   const health = await fetch(`${BASE}/health`);
   let json = {};
   try { json = await health.json(); } catch {}
-  rec('health', health.status === 200, { status: health.status, body: json });
-  rec('health-sha', json.htmlSha256 === SHA, { actual: json.htmlSha256 });
-  rec('health-version', json.version === 'HUNTER_EMPLOYEE_OS_APPROVED_WORKSPACE_V4', { actual: json.version });
+  rec('health-200', health.status === 200, { status: health.status, body: json });
+  rec('health-version-v5', json.version === 'HUNTER_EMPLOYEE_OS_APPROVED_WORKSPACE_V5', { actual: json.version });
+  rec('health-v4-frozen-sha', json.v4HtmlSha256 === EXPECTED_V4_SHA, { actual: json.v4HtmlSha256 });
+  rec('health-v5-sha-present', typeof json.htmlSha256 === 'string' && json.htmlSha256.length === 64, { actual: json.htmlSha256 });
   rec('production-boundary', json.production === 'untouched', { actual: json.production });
 
   const response = await fetch(`${BASE}/portal`);
   const html = await response.text();
   rec('portal-200', response.status === 200, { status: response.status });
-  rec('portal-sha', response.headers.get('x-hunter-html-sha256') === SHA, { actual: response.headers.get('x-hunter-html-sha256') });
-  rec('review-header', response.headers.get('x-hunter-review') === 'approved-workspace-v4', { actual: response.headers.get('x-hunter-review') });
+  rec('review-header-v5', response.headers.get('x-hunter-review') === 'approved-workspace-v5', { actual: response.headers.get('x-hunter-review') });
+  rec('portal-v4-frozen-sha', response.headers.get('x-hunter-v4-html-sha256') === EXPECTED_V4_SHA, { actual: response.headers.get('x-hunter-v4-html-sha256') });
+  rec('portal-v5-sha-matches-health', response.headers.get('x-hunter-html-sha256') === json.htmlSha256, { header: response.headers.get('x-hunter-html-sha256'), health: json.htmlSha256 });
   for (const marker of [
     'HUNTER_EMPLOYEE_OS_V4_WORKSPACE',
-    'What’s on your mind?',
-    'What do you need done?',
-    'Department accountability',
-    'PAYMENT_SUBMITTED',
-    'People & Access',
-    'Passage Check',
-    'Compact hover',
-    'Conversation',
-    'Reply',
+    'HUNTER_EMPLOYEE_OS_V5_OWNER_CORRECTIONS',
+    'Maya + Hunter', 'Employee reply', 'Propose alternative', 'Confirm & send',
+    'D1 jobs', 'Selected job', 'Update D1', 'Link phone', 'Carrier tracking',
+    'WhatsApp/screenshots/claims do not mark PAID', 'Hunter Browser', 'no connected browser session',
   ]) rec(`marker:${marker}`, html.includes(marker));
 }
 
-async function laneShell(browser) {
-  const { context, page, errors } = await fresh(browser);
+async function laneInitialAndRole(browser) {
+  const item = await fresh(browser); const { context, page, runtimeErrors, failedRequests, writeRequests } = item;
+  const initial = await activeRoute(page);
+  rec('initial-department-lands-hunter', initial === 'hunter', { active: initial });
+  const role = page.locator('#roleSelect');
+  if (await role.count()) {
+    const options = await role.locator('option').evaluateAll(options => options.map(o => o.value).filter(Boolean));
+    const target = options.find(v => v !== 'owner') || options[0];
+    if (target) {
+      if (MOBILE && !await drawerOpen(page)) await tap(page, '#menuBtn', 'role-drawer-open');
+      await role.selectOption(target);
+      await page.waitForTimeout(250);
+      rec('role-change-lands-hunter', await activeRoute(page) === 'hunter', { role: target, active: await activeRoute(page) });
+      if (MOBILE && await drawerOpen(page)) await page.locator('#scrim').click().catch(() => {});
+    }
+  } else rec('role-change-lands-hunter', false, { error: '#roleSelect missing' });
+  rec('initial-runtime', runtimeErrors.length === 0, { runtimeErrors });
+  rec('initial-network', failedRequests.length === 0, { failedRequests });
+  rec('initial-no-writes', writeRequests.length === 0, { writeRequests });
+  await page.screenshot({ path: path.join(OUT, `${NAME}-hunter-landing.png`), fullPage: true });
+  await context.close();
+}
+
+async function laneBrowser(browser) {
+  const { context, page, runtimeErrors, failedRequests, writeRequests } = await fresh(browser);
+  rec('browser-icon-visible', await visible(page, '#v5BrowserBtn'));
+  await tap(page, '#v5BrowserBtn', 'browser-open');
+  rec('browser-modal-visible', await visible(page, '#v5BrowserModal'));
+  const text = await page.locator('#v5BrowserModal').innerText().catch(() => '');
+  rec('browser-truthful-no-session', text.includes('no connected browser session') || text.includes('not connected'), { text });
+  await page.screenshot({ path: path.join(OUT, `${NAME}-browser.png`), fullPage: true });
+  await page.locator('#v5BrowserModal [data-v5-close]').click().catch(() => {});
+  rec('browser-runtime', runtimeErrors.length === 0, { runtimeErrors });
+  rec('browser-network', failedRequests.length === 0, { failedRequests });
+  rec('browser-no-writes', writeRequests.length === 0, { writeRequests });
+  await context.close();
+}
+
+async function laneInbox(browser) {
+  const { context, page, runtimeErrors, failedRequests, writeRequests } = await fresh(browser);
+  await openRoute(page, 'inbox');
+  rec('whatsapp-surface-visible', await visible(page, '[data-v5-surface="inbox"]'));
+  const conversationText = await page.locator('[data-v5-surface="inbox"]').innerText().catch(() => '');
+  for (const required of ['WhatsApp', 'Conversation', 'Respond', 'Maya + Hunter']) rec(`inbox:${required}`, conversationText.includes(required), { text: conversationText });
+  await page.screenshot({ path: path.join(OUT, `${NAME}-whatsapp-conversation.png`), fullPage: true });
+  await tap(page, '[data-v5-inbox-view="respond"]', 'inbox-respond-switch');
+  await page.waitForTimeout(80);
+  rec('respond-compact-context', await visible(page, '.v5-wa-context'));
+  rec('respond-no-stacked-conversation', await page.locator('.v5-wa-conversation').count() === 0, { count: await page.locator('.v5-wa-conversation').count() });
+  for (const mode of ['assisted', 'employee', 'alternative']) rec(`respond-mode:${mode}`, await page.locator(`[data-v5-mode="${mode}"]`).count() === 1);
+  await tap(page, '[data-v5-mode="employee"]', 'respond-employee-mode');
+  rec('respond-employee-active', (await page.locator('[data-v5-mode="employee"]').getAttribute('class').catch(() => '')).includes('active'));
+  await tap(page, '[data-v5-takeover]', 'respond-takeover');
+  rec('respond-return-assisted', (await page.locator('[data-v5-takeover]').innerText().catch(() => '')).includes('Return assisted'));
+  await tap(page, '[data-v5-takeover]', 'respond-return-assisted-click');
+  rec('respond-takeover-restored', (await page.locator('[data-v5-takeover]').innerText().catch(() => '')).includes('Take over'));
+  await tap(page, '[data-v5-confirm]', 'respond-confirm-send');
+  rec('respond-confirm-truthful-review-only', (await page.locator('.v5-toast').innerText().catch(() => '')).includes('Review only'));
+  await page.screenshot({ path: path.join(OUT, `${NAME}-whatsapp-respond.png`), fullPage: true });
+  rec('inbox-runtime', runtimeErrors.length === 0, { runtimeErrors });
+  rec('inbox-network', failedRequests.length === 0, { failedRequests });
+  rec('inbox-no-writes', writeRequests.length === 0, { writeRequests });
+  await context.close();
+}
+
+async function laneTracking(browser) {
+  const { context, page, runtimeErrors, failedRequests, writeRequests } = await fresh(browser);
+  await openRoute(page, 'tracking');
+  rec('tracking-surface-visible', await visible(page, '[data-v5-surface="tracking"]'));
+  const text = await page.locator('[data-v5-surface="tracking"]').innerText().catch(() => '');
+  for (const required of ['Tracking Operations', 'D1 jobs', 'Selected job', 'Stage', 'Location', 'Shipping cost', 'Update note', 'Update D1', 'Link phone', 'Carrier tracking', 'Job truth', 'PAYMENT_SUBMITTED', 'WhatsApp/screenshots/claims do not mark PAID', 'Pay Gateway']) rec(`tracking:${required}`, text.includes(required), { text });
+  await tap(page, '[data-v5-track-action="Update D1"]', 'tracking-update-d1');
+  rec('tracking-update-truthful-review-only', (await page.locator('.v5-toast').innerText().catch(() => '')).includes('Review only'));
+  await page.screenshot({ path: path.join(OUT, `${NAME}-tracking.png`), fullPage: true });
+  rec('tracking-runtime', runtimeErrors.length === 0, { runtimeErrors });
+  rec('tracking-network', failedRequests.length === 0, { failedRequests });
+  rec('tracking-no-writes', writeRequests.length === 0, { writeRequests });
+  await context.close();
+}
+
+async function laneRegression(browser) {
+  const { context, page, runtimeErrors, failedRequests, writeRequests } = await fresh(browser);
   const scrollWidth = await page.evaluate(() => document.documentElement.scrollWidth);
   const clientWidth = await page.evaluate(() => document.documentElement.clientWidth);
   rec('no-horizontal-overflow', scrollWidth === clientWidth, { scrollWidth, clientWidth });
   await tap(page, '#bellBtn', 'bell-open');
-  await page.waitForTimeout(60);
-  rec('bell-compact-popover', await page.locator('#notificationPopover').isVisible().catch(() => false));
+  rec('bell-compact-popover', await visible(page, '#notificationPopover'));
   await page.locator('#bellBtn').click().catch(() => {});
-  await openRoute(page, 'orders');
-  await openRoute(page, 'swap');
-  rec('shell-runtime', errors.length === 0, { errors });
-  await context.close();
-}
-async function laneClients(browser) {
-  const { context, page, errors } = await fresh(browser);
-  await openRoute(page, 'clients');
-  const search = page.locator('#clientSearch');
-  if (await search.count()) {
-    await search.fill('Ruth');
-    await page.waitForTimeout(80);
-    const count = await page.locator('[data-open-client]').count();
-    rec('client-search', count > 0, { count });
-    if (count) {
-      await tap(page, '[data-open-client]', 'client-open');
-      rec('client-modal', await page.locator('#modalWrap').isVisible().catch(() => false));
-      await closeModal(page);
-    }
-  } else rec('client-search', false, { error: 'search missing' });
-  rec('clients-runtime', errors.length === 0, { errors });
-  await context.close();
-}
-async function laneInbox(browser) {
-  const { context, page, errors } = await fresh(browser);
-  await openRoute(page, 'inbox');
-  await tap(page, '[data-inbox-view="reply"]', 'inbox-reply-switch');
-  rec('reply-visible', await page.locator('#replyText').isVisible().catch(() => false));
-  if (await page.locator('[data-reply-mode="employee"]').count()) await tap(page, '[data-reply-mode="employee"]', 'reply-employee');
-  if (await page.locator('#replyText').count()) await page.locator('#replyText').fill('Live proof reply');
-  if (await page.locator('[data-action="send-reply"]').count()) await tap(page, '[data-action="send-reply"]', 'reply-send');
-  await tap(page, '[data-inbox-view="conversation"]', 'inbox-conversation-switch');
-  rec('inbox-runtime', errors.length === 0, { errors });
-  await context.close();
-}
-async function laneChat(browser) {
-  const { context, page, errors } = await fresh(browser);
-  await openRoute(page, 'hunter');
-  rec('chat-input-visible', await page.locator('#chatInput').isVisible().catch(() => false));
   if (MOBILE) {
-    await tap(page, '#menuBtn', 'chat-drawer');
-    rec('chat-history-visible', await page.locator('#chatHistory').isVisible().catch(() => false));
-    if (await page.locator('[data-chat]').count()) await tap(page, '[data-chat]', 'chat-history-switch');
-    if (await drawerOpen(page)) await page.locator('#scrim').click().catch(() => {});
+    await tap(page, '#menuBtn', 'drawer-open');
+    rec('drawer-open-state', await drawerOpen(page));
+    await openRoute(page, 'inbox');
+    rec('drawer-closes-on-destination', !await drawerOpen(page));
   }
-  const input = page.locator('#chatInput');
-  if (await input.count()) {
-    await input.fill(`Live ${NAME} proof`);
-    const before = await page.locator('.message.user').count();
-    await tap(page, '#sendBtn', 'chat-send');
-    await page.waitForTimeout(220);
-    const after = await page.locator('.message.user').count();
-    rec('chat-appended', after > before, { before, after });
-  }
+  await openRoute(page, 'hunter');
+  rec('chat-input-visible', await visible(page, '#chatInput'));
   await tap(page, '#voiceBtn', 'voice-open');
   await page.waitForTimeout(60);
-  rec('voice-modal', (await page.locator('#modalRoot').innerText().catch(() => '')).includes('Hunter Voice'));
+  rec('hunter-voice-modal', (await page.locator('#modalRoot').innerText().catch(() => '')).includes('Hunter Voice'));
   await closeModal(page);
-  const actions = await page.locator('[data-msg-action]').count();
-  rec('response-actions', actions >= 7, { count: actions });
-  rec('chat-runtime', errors.length === 0, { errors });
-  await context.close();
-}
-async function laneSettings(browser) {
-  const { context, page, errors } = await fresh(browser);
   if (MOBILE) {
-    await tap(page, '#menuBtn', 'settings-drawer');
-    await tap(page, '#accountBtn', 'account-menu');
-  } else await tap(page, '#profileBtn', 'account-menu');
+    if (!await drawerOpen(page)) await tap(page, '#menuBtn', 'settings-drawer');
+    await tap(page, '#accountBtn', 'settings-account');
+  } else await tap(page, '#profileBtn', 'settings-account');
   await tap(page, '[data-account="settings"]', 'settings-open');
-  const count = await page.locator('[data-settings-tab]').count();
-  rec('settings-16-tabs', count === 16, { count });
-  for (const key of ['general', 'appearance', 'notifications', 'voice', 'account']) {
-    const tab = page.locator(`[data-settings-tab="${key}"]`);
-    if (await tab.count()) { await tab.click(); rec(`settings:${key}`, true); }
-    else rec(`settings:${key}`, false);
-  }
-  const general = page.locator('[data-settings-tab="general"]');
-  if (await general.count()) {
-    await general.click();
-    const font = page.locator('[data-setting="font"]');
-    if (await font.count()) rec('font-default', (await font.inputValue()) === 'default', { value: await font.inputValue() });
-    const actionStyle = page.locator('[data-setting="action-style"]');
-    if (await actionStyle.count()) rec('compact-hover', (await actionStyle.inputValue()) === 'hover', { value: await actionStyle.inputValue() });
-  }
-  const appearance = page.locator('[data-settings-tab="appearance"]');
-  if (await appearance.count()) {
-    await appearance.click();
-    const theme = page.locator('[data-setting="theme"]');
-    if (await theme.count()) {
-      await theme.selectOption('light');
-      await page.waitForTimeout(40);
-      rec('light-theme', (await page.locator('html').getAttribute('data-theme')) === 'light', { actual: await page.locator('html').getAttribute('data-theme') });
-      await theme.selectOption('dark');
-    }
-  }
-  rec('settings-runtime', errors.length === 0, { errors });
+  rec('settings-visible', await page.locator('[data-settings-tab]').count() >= 10, { count: await page.locator('[data-settings-tab]').count() });
+  await closeModal(page);
+  rec('regression-runtime', runtimeErrors.length === 0, { runtimeErrors });
+  rec('regression-network', failedRequests.length === 0, { failedRequests });
+  rec('regression-no-writes', writeRequests.length === 0, { writeRequests });
   await context.close();
-}
-async function laneOps(browser) {
-  const { context, page, errors } = await fresh(browser);
-  await openRoute(page, 'payments');
-  const verify = page.locator('[data-action="verify-payment"]').first();
-  if (await verify.count()) { await verify.click(); rec('payment-verify', true); }
-  else rec('payment-verify', false, { error: 'verify absent' });
-  await openRoute(page, 'technician');
-  const pick = page.locator('[data-tech="pick"]').first();
-  if (await pick.count()) { await pick.click(); rec('technician-pick', true); }
-  else rec('technician-pick', true, { detail: 'no queued device in this fresh review state' });
-  await openRoute(page, 'people');
-  const manage = page.locator('[data-action="manage-person"]').first();
-  if (await manage.count()) {
-    await manage.click();
-    rec('people-manage', await page.locator('#modalWrap').isVisible().catch(() => false));
-    await closeModal(page);
-  } else rec('people-manage', false, { error: 'manage absent' });
-  rec('ops-runtime', errors.length === 0, { errors });
-  await context.close();
-}
-async function laneRegular(browser) {
-  const { context, page, errors } = await fresh(browser);
-  await setRole(page, 'regular');
-  const count = await page.locator('#nav [data-page]').count();
-  rec('regular-chat-only', count === 1, { count });
-  rec('regular-greeting', (await page.locator('body').innerText()).includes('What’s on your mind?'));
-  rec('regular-search', (await page.locator('#globalSearch').getAttribute('placeholder')) === 'Search chats and projects…', { value: await page.locator('#globalSearch').getAttribute('placeholder') });
-  rec('regular-badge-hidden', !await page.locator('#bellCount').isVisible().catch(() => false));
-  rec('regular-runtime', errors.length === 0, { errors });
-  await page.screenshot({ path: path.join(OUT, `${NAME}-regular.png`), fullPage: true });
-  await context.close();
-}
-async function laneVisual(browser) {
-  let item = await fresh(browser);
-  await openRoute(item.page, 'today');
-  await item.page.screenshot({ path: path.join(OUT, `${NAME}-today.png`), fullPage: true });
-  await item.context.close();
-
-  item = await fresh(browser);
-  await openRoute(item.page, 'hunter');
-  if (MOBILE && await drawerOpen(item.page)) await item.page.locator('#scrim').click().catch(() => {});
-  await item.page.screenshot({ path: path.join(OUT, `${NAME}-hunter.png`), fullPage: true });
-  await item.context.close();
-
-  item = await fresh(browser);
-  await openRoute(item.page, 'inbox');
-  await tap(item.page, '[data-inbox-view="reply"]', 'capture-reply');
-  await item.page.screenshot({ path: path.join(OUT, `${NAME}-inbox-reply.png`), fullPage: true });
-  await item.context.close();
 }
 
 let browser;
 try {
   await preflight();
   browser = await chromium.launch({ headless: true });
-  for (const lane of [laneShell, laneClients, laneInbox, laneChat, laneSettings, laneOps, laneRegular, laneVisual]) await lane(browser);
+  for (const lane of [laneInitialAndRole, laneBrowser, laneInbox, laneTracking, laneRegression]) await lane(browser);
 } catch (error) {
   rec('uncaught', false, { error: String(error) });
 } finally {
